@@ -139,6 +139,7 @@ clean_up() {
     echo -e "${BGreen}Output saved to '${Blue}$outfile${BGreen}'! Local logs saved to '${Blue}$AXIOM_PATH/logs/$uid${BGreen}'! ${BGreen}Remote logs saved to '${Blue}/home/op/scan/$uid${BGreen}'!"
     echo "{\"module\":\"$module\",\"args\":\"$args\",\"targets\":\"$lines\",\"results\":\"$res\",\"seconds\":\"$runtime\",\"instances\":\"$total_instances\",\"command\":\"$command\",\"scanuid\":\"$uid\",\"time\":\"$time\",\"start-time\":\"$starttime\",\"status\":\"canceled\"}"  >> $AXIOM_PATH/stats.log
     kill -9 $tailPID
+    kill -9 $downloaderPID
     stty sane
     tput init
     exit $1
@@ -541,10 +542,15 @@ fi
 #
 uid="$module+$(date +%s)"
 tmp="$AXIOM_PATH/tmp/$uid"
+completed="$AXIOM_PATH/tmp/$uid/status/completed/"
+inprogress="$AXIOM_PATH/tmp/$uid/status/inprogress/"
+
 mkdir -p "$tmp/input"
 mkdir -p "$tmp/split"
 mkdir -p "$tmp/output"
 mkdir -p "$tmp/logs"
+mkdir -p "$completed"
+mkdir -p "$inprogress"
 
 # Spinup Flag
 #
@@ -631,7 +637,7 @@ fi
 # Add default SSH commands
 # Add default interlace command
 scan_dir="/home/op/scan/$uid"
-ssh_command="ssh -F $sshconfig -o StrictHostKeyChecking=no"
+ssh_command="ssh -F $sshconfig  -o StrictHostKeyChecking=no"
 interlace_cmd="$(which interlace) --silent -tL $tmp/hosts -threads $total_instances"
 
 ###########################################################################################################
@@ -755,7 +761,7 @@ fi
 #
 echo -e "${Blue}Uploading input files...${Color_Off}"
 $interlace_cmd -c "$AXIOM_PATH/interact/axiom-scp $tmp/input/_target_ _target_:$scan_dir/input --cache -F=$sshconfig >/dev/null 2>&1; touch $tmp/logs/_target_" | grep -v "Gen" 
-
+	
 # Dont tail if interactive is false
 #
 if [[ "$interactive" != "true" ]]; then
@@ -763,32 +769,72 @@ if [[ "$interactive" != "true" ]]; then
     tailPID=$!
 fi
 
+# Downloader function that periodically downloads results
+#
+function downloader () {
+while true; do
+sleep 10
+$interlace_cmd -c "axiom-scp _target_:$scan_dir/_target_ $tmp/status/inprogress/_target_ --cache -F=$sshconfig >/dev/null 2>&1"
+ls $tmp/status/inprogress/ | tee  $tmp/status/completed/hosts >/dev/null 2>&1
+downloader_instances=$(cat $tmp/status/completed/hosts | wc -l)
+ if [[ "$downloader_instances" -eq "0" ]]; then
+  sleep 10
+  downloader
+ fi
+
+downloader_cmd="$(which interlace) --silent -tL $tmp/status/completed/hosts -threads $downloader_instances"
+$downloader_cmd -c "$ssh_command _target_ '[ -f $scan_dir/_target_ ] && echo _target_ scan finished || echo _target_ scan was still running but downloading partial results'"
+
+if [[ "$command" =~ "_target_" ]]; then
+$downloader_cmd -c "axiom-scp _target_:$scan_dir/output/ $tmp/output/ --cache -F=$sshconfig >/dev/null 2>&1"
+else
+$downloader_cmd -c "axiom-scp _target_:$scan_dir/output $tmp/output/_target_.$ext --cache -F=$sshconfig >/dev/null 2>&1"
+fi
+
+ if cmp -s "$tmp/status/completed/hosts" "$tmp/hosts" ; then
+  kill -9 $(cat $tmp/status/remotetailPID)  >> /dev/null 2>&1
+  wait $(cat $tmp/status/remotetailPID)  >> /dev/null 2>&1
+  break >> /dev/null 2>&1
+ else
+  downloader
+ fi
+done
+}
+
 # Start the one shot scan by SSH-ing into each instance and running the Interlace command on every remote instance
 #
 if [[ "$command" =~ "_target_" ]]; then
-    echo -e "${BRed}[*]${Red} ENABLING ONESHOT MODE! STARTING $(($total_instances * $threads)) TOTAL THREADS. Using $threads threads per instance with $total_instances instances...${Color_Off}"
-    sleep 3
-    $interlace_cmd -c "$ssh_command _target_ 'cd $scan_dir; interlace --silent -threads $threads -tL input -cL command -o output && touch _target_' >> $tmp/logs/_target_ 2>&1"
-    $interlace_cmd -c "$ssh_command _target_ '[ -f $scan_dir/_target_ ] && echo _target_ scan finished || echo _target_ scan was still running but downloading partial results'"
-
-# Once all the SSH terminals exit, either by finishing its exection or if the session drops, download the results
-# TODO: Dont call axiom-scp just because SSH returns, instead periodically SSH into the instances and determine if the scan has finished and then download
-# https://github.com/pry0cc/axiom/issues/398#issuecomment-884558443
-    $interlace_cmd -c "axiom-scp _target_:$scan_dir/output/ $tmp/output/ --cache -F=$sshconfig >/dev/null 2>&1"
+ echo -e "${BRed}[*]${Red} ENABLING ONESHOT MODE! STARTING $(($total_instances * $threads)) TOTAL THREADS. Using $threads threads per instance with $total_instances instances...${Color_Off}"
+ sleep 3
+ downloader &
+ downloaderPID=$!
+ $interlace_cmd -c "$ssh_command _target_ 'tmux new -d -s $uid && tmux send-keys -t $uid \"cd $scan_dir; interlace --silent -threads $threads -tL input -cL command -o output | tee -a logs.txt && touch _target_\" ENTER ' \"&& tmux send-keys -t $uid exit ENTER\""
+ $interlace_cmd -c "$ssh_command _target_ 'cd $scan_dir; tail -f logs.txt' >> $tmp/logs/_target_ 2>&1 " &
+ remotetailPID=$!
+ echo $remotetailPID > $tmp/status/remotetailPID
+ wait $remotetailPID  >> /dev/null 2>&1
 else
 
 # Simple module exection and download results
-# TODO: Dont call axiom-scp just because SSH returns, instead periodically SSH into the instances and determine if the scan has finished and then download
-# https://github.com/pry0cc/axiom/issues/398#issuecomment-884558443
-    if [[ "$interactive" == "true" ]]; then
-        $interlace_cmd -c "$ssh_command _target_ 'cd $scan_dir; $command && touch _target_'"
-    $interlace_cmd -c "$ssh_command _target_ '[ -f $scan_dir/_target_ ] && echo _target_ scan finished || echo _target_ scan was still running but downloading partial results'"
+if [[ "$interactive" == "true" ]]; then
+downloader &
+downloaderPID=$!
+$interlace_cmd -c "$ssh_command _target_ 'tmux new -d -s $uid && tmux send-keys -t $uid \"cd $scan_dir; $command | tee logs.txt && touch _target_\" ENTER ' \"&& tmux send-keys -t $uid exit ENTER\""
+$interlace_cmd -c "$ssh_command _target_ 'cd $scan_dir; tail -f logs.txt' >> $tmp/logs/_target_ 2>&1 " &
+remotetailPID=$!
 
-    else
-        $interlace_cmd -c "$ssh_command _target_ 'cd $scan_dir; $command && touch _target_' >> $tmp/logs/_target_ 2>&1"
-        $interlace_cmd -c "$ssh_command _target_ '[ -f $scan_dir/_target_ ] && echo _target_ scan finished || echo _target_ scan was still running but downloading partial results'"
-    fi
-    $interlace_cmd -c "axiom-scp _target_:$scan_dir/output $tmp/output/_target_.$ext --cache -F=$sshconfig >/dev/null 2>&1"
+
+else
+
+downloader & 
+downloaderPID=$!
+$interlace_cmd -c "$ssh_command _target_ 'tmux new -d -s $uid && tmux send-keys -t $uid \"cd $scan_dir; $command | tee logs.txt && touch _target_\" ENTER ' \"&& tmux send-keys -t $uid exit ENTER\""
+$interlace_cmd -c "$ssh_command _target_ 'cd $scan_dir; tail -f logs.txt' >> $tmp/logs/_target_ 2>&1 " &
+remotetailPID=$!
+echo $remotetailPID > $tmp/status/remotetailPID 
+wait $remotetailPID  >> /dev/null 2>&1
+
+fi
 fi
 
 # After downloading all the results merge the output 
@@ -836,6 +882,8 @@ echo -e "${Blue}Module [ $module $args ] | Time: [ $time ] | Input: [ $lines tar
 echo -e "${BGreen}Output saved to '${Blue}$outfile${BGreen}'! Local logs saved to '${Blue}$AXIOM_PATH/logs/$uid${BGreen}'! ${BGreen}Remote logs saved to '${Blue}/home/op/scan/$uid${BGreen}'!"
 echo "{\"module\":\"$module\",\"args\":\"$args\",\"targets\":\"$lines\",\"results\":\"$res\",\"seconds\":\"$runtime\",\"instances\":\"$total_instances\",\"command\":\"$command\",\"scanuid\":\"$uid\",\"time\":\"$time\",\"start-time\":\"$starttime\",\"status\":\"completed\"}"  >> $AXIOM_PATH/stats.log
 kill -9 $tailPID
+kill -9 $downloaderPID
 wait $tailPID 2>/dev/null
+wait $downloaderPID 2>/dev/null
 stty sane
 tput init
