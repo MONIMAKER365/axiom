@@ -638,7 +638,7 @@ fi
 # Add default interlace command
 scan_dir="/home/op/scan/$uid"
 ssh_command="ssh -F $sshconfig  -o StrictHostKeyChecking=no"
-interlace_cmd="$(which interlace) --no-bar --silent -tL $tmp/hosts -threads $total_instances" 
+interlace_cmd="$(which interlace) --silent -tL $tmp/hosts -threads $total_instances" 
 interlace_cmd_nobar="$(which interlace) --no-bar --silent -tL $tmp/hosts -threads $total_instances"
 
 
@@ -812,8 +812,8 @@ if [[ "$command" =~ "_target_" ]]; then
  sleep 3
  downloader &
  downloaderPID=$!
- $interlace_cmd_nobar -c "$ssh_command _target_ 'tmux new -d -s $uid && tmux send-keys -t $uid \"cd $scan_dir; interlace --silent -threads $threads -tL input -cL command -o output | tee -a logs.txt && touch _target_\" ENTER ' \"&& tmux send-keys -t $uid exit ENTER\""
- $interlace_cmd_nobar -c "$ssh_command _target_ 'cd $scan_dir; tail -f logs.txt' >> $tmp/logs/_target_ 2>&1 " &
+ $interlace_cmd -c "$ssh_command _target_ 'tmux new -d -s $uid && tmux send-keys -t $uid \"cd $scan_dir; interlace --silent -threads $threads -tL input -cL command -o output > >(tee -a stdout.log) 2> >(tee -a stderr.log >&2) && touch _target_\" ENTER ' \"&& tmux send-keys -t $uid exit ENTER\""
+ $interlace_cmd_nobar -c "$ssh_command _target_ 'cd $scan_dir; tail -f stderr.log & tail -f stdout.log' >> $tmp/logs/_target_ 2>&1 " &
  remotetailPID=$!
  echo $remotetailPID > $tmp/status/remotetailPID
  wait $remotetailPID  >> /dev/null 2>&1
@@ -823,17 +823,18 @@ else
 if [[ "$interactive" == "true" ]]; then
 downloader &
 downloaderPID=$!
-$interlace_cmd_nobar -c "$ssh_command _target_ 'tmux new -d -s $uid && tmux send-keys -t $uid \"cd $scan_dir; $command | tee logs.txt && touch _target_\" ENTER ' \"&& tmux send-keys -t $uid exit ENTER\""
-$interlace_cmd_nobar -c "$ssh_command _target_ 'cd $scan_dir; tail -f logs.txt' >> $tmp/logs/_target_ 2>&1 " &
+$interlace_cmd -c "$ssh_command _target_ 'tmux new -d -s $uid && tmux send-keys -t $uid \"cd $scan_dir; $command > >(tee -a stdout.log) 2> >(tee -a stderr.log >&2) && touch _target_\" ENTER ' \"&& tmux send-keys -t $uid exit ENTER\""
+$interlace_cmd_nobar -c "$ssh_command _target_ 'cd $scan_dir; tail -f stderr.log & tail -f stdout.log' >> $tmp/logs/_target_ 2>&1 " &
 remotetailPID=$!
-
+echo $remotetailPID > $tmp/status/remotetailPID
+wait $remotetailPID  >> /dev/null 2>&1
 
 else
 
 downloader & 
 downloaderPID=$!
-$interlace_cmd_nobar -c "$ssh_command _target_ 'tmux new -d -s $uid && tmux send-keys -t $uid \"cd $scan_dir; $command | tee logs.txt && touch _target_\" ENTER ' \"&& tmux send-keys -t $uid exit ENTER\""
-$interlace_cmd_nobar -c "$ssh_command _target_ 'cd $scan_dir; tail -f logs.txt' >> $tmp/logs/_target_ 2>&1 " &
+$interlace_cmd -c "$ssh_command _target_ 'tmux new -d -s $uid && tmux send-keys -t $uid \"cd $scan_dir; $command > >(tee -a stdout.log) 2> >(tee -a stderr.log >&2) && touch _target_\" ENTER ' \"&& tmux send-keys -t $uid exit ENTER\""
+$interlace_cmd_nobar -c "$ssh_command _target_ 'cd $scan_dir; tail -f stderr.log & tail -f stdout.log' >> $tmp/logs/_target_ 2>&1 " &
 remotetailPID=$!
 echo $remotetailPID > $tmp/status/remotetailPID 
 wait $remotetailPID  >> /dev/null 2>&1
