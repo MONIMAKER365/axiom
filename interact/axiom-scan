@@ -770,7 +770,7 @@ $interlace_cmd -c "$AXIOM_PATH/interact/axiom-scp $tmp/input/_target_ _target_:$
     tailPID=$!
 #
 
-# Downloader function that periodically downloads results
+# Downloader function - if the scan is complete, download the scan results 
 #
 function downloader () {
 while true; do
@@ -787,7 +787,8 @@ echo -e  "${Red}The following instances are still running: $(cat $tmp/hosts | an
  fi
 
 downloader_cmd="$(which interlace) --no-bar --silent -tL $tmp/status/completed/hosts -threads $downloader_instances" 
-$downloader_cmd -c "$ssh_command _target_ '[ -f $scan_dir/_target_ ] && echo ${Red}_target_ scan finished${Color_Off} || echo _target_ scan was still running but downloading partial results'" | grep -v 'commands in total' | grep -v 'Repeat set to'
+echo -e  ""
+$downloader_cmd -c "$ssh_command _target_ '[ -f $scan_dir/_target_ ] & echo _target_ scan finished'" | grep -v 'commands in total' | grep -v 'Repeat set to'
 
 if [[ "$command" =~ "_target_" ]]; then
 $downloader_cmd -c "axiom-scp _target_:$scan_dir/output/ $tmp/output/ --cache -F=$sshconfig >/dev/null 2>&1" | grep -v 'commands in total' | grep -v 'Repeat set to'
