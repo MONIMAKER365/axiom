@@ -781,7 +781,7 @@ ls $tmp/status/inprogress/ | anew $tmp/status/completed/hosts | tee  $tmp/status
 downloader_instances=$(cat $tmp/status/completed/hosts | wc -l)
 echo -e  ""
 echo -e  "${Red}The following instances are still running: $(cat $tmp/hosts | anew $tmp/status/completed/hosts | tr '\n' ' ')...${Color_Off}"
- if [[ "$downloader_instances" -eq "0" ]]; then
+ if [[ "$downloader_instances" -eq "0"  ]]; then
   sleep 10
   downloader
  fi
@@ -796,7 +796,7 @@ else
 $downloader_cmd -c "axiom-scp _target_:$scan_dir/output $tmp/output/_target_.$ext --cache -F=$sshconfig >/dev/null 2>&1" | grep -v 'commands in total' | grep -v 'Repeat set to'
 fi
 
- if cmp -s "$tmp/status/completed/hosts" "$tmp/hosts" ; then
+ if cmp -s "$(echo $tmp/status/completed/hosts| sort -u)" "$(echo $tmp/hosts | sort -u)" ; then
   kill -9 $(cat $tmp/status/remotetailPID)  >> /dev/null 2>&1
   wait $(cat $tmp/status/remotetailPID)  >> /dev/null 2>&1
   break >> /dev/null 2>&1
