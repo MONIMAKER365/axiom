@@ -269,7 +269,6 @@ merge_output() {
     fi
     if [[ "$ext" == "txt" ]]; then
         echo "Mode set to txt.. Sorting unique."
-        touch "$tmp/output/place"
         find $tmp/output/ -type f -exec cat {} \; | sort -u > $tmp/merge
         if [[ "$anew" == "true" ]]; then
             cat "$tmp/merge" | anew "$outfile"
@@ -284,7 +283,6 @@ merge_output() {
         mv "$tmp/merge.xml.html" "$outfile.html"
     elif [[ "$ext" == "csv" ]]; then
         echo "Mode set to CSV, merging..."
-        touch "$tmp/output/place"
         header="$(find $tmp/output/ -type f -exec head -n 1 {} \; | sort -u )"
         echo "$header" > "$outfile"
         find $tmp/output/ -type f -exec cat {} \; | grep -v "$header" | sort -u -V >> "$outfile"
