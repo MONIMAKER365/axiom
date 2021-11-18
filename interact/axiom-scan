@@ -810,19 +810,14 @@ cat $tmp/status/completed/hosts | sort -u | wc -l | tee $tmp/status/downloader_i
 
 cat $tmp/status/completed/hosts | sort -u | tee $tmp/status/downloader_hosts  >/dev/null 2>&1
 
-#echo -e ""
-#echo -e  "${Red}Remote tmux session name: $uid -- The following instances are still running: $( grep  -v -F  $tmp/status/downloader_hosts $tmp/hosts | tr '\n' ' ')...${Color_Off}"
+# echo -e  "${Red}Remote tmux session name: $uid -- The following instances are still running: $( grep  -v -F  $tmp/status/downloader_hosts $tmp/hosts | tr '\n' ' ')...${Color_Off}"
+
 if [[ "$(cat $tmp/status/downloader_instances)" -eq "0"  ]]; then
  sleep 10
  downloader
 fi
 
 downloader_cmd="$(which interlace) --no-bar --silent -tL $tmp/status/downloader_hosts -threads $(cat $tmp/status/downloader_instances)" 
-
-
-
-echo -e  ""
-
 
 if [[ "$command" =~ "_target_" ]]; then
 
