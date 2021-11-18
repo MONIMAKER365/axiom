@@ -811,7 +811,7 @@ cat $tmp/status/completed/hosts | sort -u | wc -l | tee $tmp/status/downloader_i
 cat $tmp/status/completed/hosts | sort -u | tee $tmp/status/downloader_hosts  >/dev/null 2>&1
 
 echo -e  ""
-echo -e  "${Red}Remote tmux session name: $uid -- The following instances are still running: $( grep  -v -Ff  $tmp/status/downloader_hosts $tmp/hosts | tr '\n' ' ')...${Color_Off}"
+echo -e  "${Red}Remote tmux session name: $uid -- The following instances are still running: $( grep  -v -F  $tmp/status/downloader_hosts $tmp/hosts | tr '\n' ' ')...${Color_Off}"
 if [[ "$(cat $tmp/status/downloader_instances)" -eq "0"  ]]; then
  sleep 10
  downloader
@@ -861,7 +861,7 @@ touch $tmp/status/completed/status
  downloader &
  downloaderPID=$!
  $interlace_cmd_nobar -c "$ssh_command _target_ 'tmux new -d -s $uid && tmux send-keys -t $uid \"cd $scan_dir; interlace --silent -threads $threads -tL input -cL command -o output > >(tee -a stdout.log) 2> >(tee -a stderr.log >&2) && touch _target_\" ENTER ' \"&& tmux send-keys -t $uid exit ENTER\""
- $interlace_cmd_nobar -c "$ssh_command _target_ 'cd $scan_dir && touch stderr.log stdout.log &&tail -f stderr.log & tail -f stdout.log' >> $tmp/logs/_target_ 2>&1 " &
+ $interlace_cmd_nobar -c "$ssh_command _target_ 'cd $scan_dir && touch stderr.log stdout.log && tail -f stderr.log & tail -f stdout.log' >> $tmp/logs/_target_ 2>&1 " &
  remotetailPID=$!
  echo $remotetailPID > $tmp/status/remotetailPID
  wait $remotetailPID  >> /dev/null 2>&1
